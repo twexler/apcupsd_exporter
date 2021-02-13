@@ -9,4 +9,7 @@ before:
 builds:
   - main: ./cmd/apcupsd_exporter/main.go
   
+archives:
+  - format: binary
+
 release:
