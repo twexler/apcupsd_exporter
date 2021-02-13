@@ -1,0 +1,13 @@
+---
+env:
+  - GO111MODULE=on
+  - GOPROXY=https://goproxy.io
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - ./cmd/apcupsd_exporter/main.go
+  
+release:
