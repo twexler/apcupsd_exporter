@@ -2,8 +2,8 @@ name: Publish Build
 
 on:
   push:
-    tags: '*'
-
+    branches: 
+      - master
 jobs:
 
   build:
@@ -17,7 +17,7 @@ jobs:
         go-version: 1.15
 
     - name: Build
-      run: go build -o apcupsd-exporter ./...
+      run: go build -o apcupsd-exporter ./cmd/apcupsd_exporter
       
     - uses: actions/upload-artifact@v2
       with:
