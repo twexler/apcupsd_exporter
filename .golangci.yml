@@ -4,7 +4,7 @@ run:
 
 linters-settings:
   gofumpt:
-    extra: true
+    extra-rules: true
 
 linters:
   enable:
@@ -24,7 +24,6 @@ issues:
     - "error return value not checked.*(Close|Write|Fprintf)" # false positives often
   max-same-issues: 3
   max-issues-per-linter: 0
-  max-issues: 0
 
 output:
   formats:
