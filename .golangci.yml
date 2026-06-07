@@ -18,15 +18,6 @@ linters:
     - ineffassign
     - typecheck
 
-issues:
-  max-same-issues: 3
-  max-issues-per-linter: 0
-  exclude-rules:
-    # Allow unchecked errors for Close, Write, Fprintf - common false positives
-    - linters:
-        - errcheck
-      text: "Error return value of .*(Close|Write|Fprintf)"
-
 output:
   formats:
     - format: colored-line-number
