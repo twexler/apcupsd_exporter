@@ -68,15 +68,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-1.26.x-
 
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: v1.59.0
-
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          args: run --timeout=5m
+          version: latest
+          args: --timeout=5m
 
   staticcheck:
     name: Staticcheck
