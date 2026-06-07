@@ -1,7 +1,8 @@
 package apcupsdexporter
 
 import (
-	"log"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mdlayher/apcupsd"
@@ -38,13 +39,14 @@ type UPSCollector struct {
 	NominalPowerWatts                   *prometheus.Desc
 	InternalTemperatureCelsius          *prometheus.Desc
 
-	ss StatusSource
+	ss     StatusSource
+	logger *slog.Logger
 }
 
 var _ prometheus.Collector = &UPSCollector{}
 
-// NewUPSCollector creates a new UPSCollector.
-func NewUPSCollector(ss StatusSource) *UPSCollector {
+// NewUPSCollectorWithLogger creates a new UPSCollector with an explicit slog logger.
+func NewUPSCollectorWithLogger(ss StatusSource, logger *slog.Logger) *UPSCollector {
 	labels := []string{"ups"}
 
 	return &UPSCollector{
@@ -174,8 +176,16 @@ func NewUPSCollector(ss StatusSource) *UPSCollector {
 			nil,
 		),
 
-		ss: ss,
+		ss:     ss,
+		logger: logger,
 	}
+}
+
+// NewUPSCollector creates a new UPSCollector with a default logger.
+// This is a backward-compatible constructor for tests and callers that don't
+// need to pass an explicit logger.
+func NewUPSCollector(ss StatusSource) *UPSCollector {
+	return NewUPSCollectorWithLogger(ss, slog.Default())
 }
 
 // Describe sends the descriptors of each metric over to the provided channel.
@@ -212,135 +222,142 @@ func (c *UPSCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *UPSCollector) Collect(ch chan<- prometheus.Metric) {
 	s, err := c.ss.Status()
 	if err != nil {
-		log.Printf("failed collecting UPS metrics: %v", err)
+		if c.logger != nil {
+			c.logger.Error("failed collecting UPS metrics", "err", err)
+		}
 		ch <- prometheus.NewInvalidMetric(c.Info, err)
 		return
 	}
+
+	ups := sanitizeLabel(s.UPSName)
+	host := sanitizeLabel(s.Hostname)
+	model := sanitizeLabel(s.Model)
+	status := sanitizeLabel(s.Status)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.Info,
 		prometheus.GaugeValue,
 		1,
-		s.UPSName, s.Hostname, s.Model, s.Status,
+		ups, host, model, status,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.UPSLoadPercent,
 		prometheus.GaugeValue,
 		s.LoadPercent,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryChargePercent,
 		prometheus.GaugeValue,
 		s.BatteryChargePercent,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.LineVolts,
 		prometheus.GaugeValue,
 		s.LineVoltage,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.LineNominalVolts,
 		prometheus.GaugeValue,
 		s.NominalInputVoltage,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.OutputVolts,
 		prometheus.GaugeValue,
 		s.OutputVoltage,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.OutputAmps,
 		prometheus.GaugeValue,
 		s.OutputAmps,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryVolts,
 		prometheus.GaugeValue,
 		s.BatteryVoltage,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryNominalVolts,
 		prometheus.GaugeValue,
 		s.NominalBatteryVoltage,
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryNumberTransfersTotal,
 		prometheus.CounterValue,
 		float64(s.NumberTransfers),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryTimeLeftSeconds,
 		prometheus.GaugeValue,
 		s.TimeLeft.Seconds(),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryTimeOnSeconds,
 		prometheus.GaugeValue,
 		s.TimeOnBattery.Seconds(),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.BatteryCumulativeTimeOnSecondsTotal,
 		prometheus.CounterValue,
 		s.CumulativeTimeOnBattery.Seconds(),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.LastTransferOnBatteryTimeSeconds,
 		prometheus.GaugeValue,
 		timestamp(s.XOnBattery),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.LastTransferOffBatteryTimeSeconds,
 		prometheus.GaugeValue,
 		timestamp(s.XOffBattery),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.LastSelftestTimeSeconds,
 		prometheus.GaugeValue,
 		timestamp(s.LastSelftest),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.NominalPowerWatts,
 		prometheus.GaugeValue,
 		float64(s.NominalPower),
-		s.UPSName,
+		ups,
 	)
 
 	ch <- prometheus.MustNewConstMetric(
 		c.InternalTemperatureCelsius,
 		prometheus.GaugeValue,
 		s.InternalTemp,
-		s.UPSName,
+		ups,
 	)
 }
 
@@ -350,4 +367,25 @@ func timestamp(t time.Time) float64 {
 	}
 
 	return float64(t.Unix())
+}
+
+// sanitizeLabel removes control characters and truncates label values to a
+// reasonable length to avoid excessive cardinality or invalid label values.
+func sanitizeLabel(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	// Remove control chars.
+	v = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, v)
+	v = strings.TrimSpace(v)
+	const maxLabelLen = 128
+	if len(v) > maxLabelLen {
+		return v[:maxLabelLen]
+	}
+	return v
 }

@@ -4,8 +4,12 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/mdlayher/apcupsd"
 	apcupsdexporter "github.com/mdlayher/apcupsd_exporter"
@@ -25,23 +29,54 @@ func main() {
 	flag.Parse()
 
 	if *apcupsdAddr == "" {
-		log.Fatal("address of apcupsd Network Information Server (NIS) must be specified with '-apcupsd.addr' flag")
+		slog.Error("address of apcupsd Network Information Server (NIS) must be specified", "flag", "-apcupsd.addr")
+		os.Exit(1)
 	}
+
+	// Setup structured logger
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{AddSource: true}))
 
 	fn := newClient(*apcupsdNetwork, *apcupsdAddr)
 
-	prometheus.MustRegister(apcupsdexporter.New(fn))
+	prometheus.MustRegister(apcupsdexporter.NewWithLogger(fn, logger))
 
-	http.Handle(*metricsPath, promhttp.Handler())
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.Handle(*metricsPath, promhttp.Handler())
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, *metricsPath, http.StatusMovedPermanently)
 	})
+	mux.HandleFunc("/-/healthy", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/-/ready", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 
-	log.Printf("starting apcupsd exporter on %q for server %s://%s",
-		*telemetryAddr, *apcupsdNetwork, *apcupsdAddr)
+	srv := &http.Server{Addr: *telemetryAddr, Handler: mux}
 
-	if err := http.ListenAndServe(*telemetryAddr, nil); err != nil {
-		log.Fatalf("cannot start apcupsd exporter: %s", err)
+	logger.Info("starting apcupsd exporter", "addr", *telemetryAddr, "server", *apcupsdNetwork+"://"+*apcupsdAddr)
+
+	// Start server
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("http server failed", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for termination signal and shutdown gracefully
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("shutting down server")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("server shutdown failed", "err", err)
+		os.Exit(1)
 	}
 }
 

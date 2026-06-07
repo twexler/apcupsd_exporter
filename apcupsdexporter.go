@@ -5,7 +5,7 @@ package apcupsdexporter
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/mdlayher/apcupsd"
@@ -26,7 +26,9 @@ const (
 // It implements the prometheus.Collector interface in order to register
 // with Prometheus.
 type Exporter struct {
-	clientFn ClientFunc
+	clientFn    ClientFunc
+	logger      *slog.Logger
+	DialTimeout time.Duration
 }
 
 var _ prometheus.Collector = &Exporter{}
@@ -38,9 +40,19 @@ type ClientFunc func(ctx context.Context) (*apcupsd.Client, error)
 
 // New creates a new Exporter which collects metrics by creating a apcupsd
 // client using the input ClientFunc.
+// New creates a new Exporter using the provided ClientFunc and the
+// default slog logger.
 func New(fn ClientFunc) *Exporter {
+	return NewWithLogger(fn, slog.Default())
+}
+
+// NewWithLogger creates an Exporter using the provided ClientFunc and
+// slog logger.
+func NewWithLogger(fn ClientFunc, logger *slog.Logger) *Exporter {
 	return &Exporter{
-		clientFn: fn,
+		clientFn:    fn,
+		logger:      logger,
+		DialTimeout: 5 * time.Second,
 	}
 }
 
@@ -66,8 +78,13 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	// This is a hack but it allows us to report failure to dial without
 	// reworking significant portions of the code.
 	if err != nil {
-		log.Println(err)
-		ch <- prometheus.NewInvalidMetric(NewUPSCollector(nil).Info, err)
+		if e.logger != nil {
+			e.logger.Error("collect failure", "err", err)
+		} else {
+			// Fallback to standard output if no logger provided.
+			_ = fmt.Errorf("collect failure: %v", err)
+		}
+		ch <- prometheus.NewInvalidMetric(NewUPSCollectorWithLogger(nil, e.logger).Info, err)
 		return
 	}
 }
@@ -76,17 +93,27 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 // collectors.  It invokes the input closure and then cleans up after the
 // closure returns.
 func (e *Exporter) withCollectors(fn func(cs []prometheus.Collector)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	dTimeout := e.DialTimeout
+	if dTimeout == 0 {
+		dTimeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dTimeout)
 	defer cancel()
 
 	c, err := e.clientFn(ctx)
 	if err != nil {
-		return fmt.Errorf("error creating apcupsd client: %v", err)
+		return fmt.Errorf("create apcupsd client: %w", err)
 	}
-	defer func() { _ = c.Close() }()
+	defer func() {
+		if cerr := c.Close(); cerr != nil {
+			if e.logger != nil {
+				e.logger.Warn("closing apcupsd client failed", "err", cerr)
+			}
+		}
+	}()
 
 	cs := []prometheus.Collector{
-		NewUPSCollector(c),
+		NewUPSCollectorWithLogger(c, e.logger),
 	}
 
 	fn(cs)

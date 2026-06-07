@@ -11,18 +11,12 @@ linters:
     - govet
     - staticcheck
     - errcheck
-    - gosimple
     - unused
     - gofmt
     - gofumpt
     - revive
     - ineffassign
-    - deadcode
     - typecheck
-    - structcheck
-    - varcheck
-  disable:
-    - maligned
 
 issues:
   exclude-use-default: false
@@ -33,4 +27,5 @@ issues:
   max-issues: 0
 
 output:
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
