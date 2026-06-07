@@ -83,7 +83,7 @@ func (e *Exporter) withCollectors(fn func(cs []prometheus.Collector)) error {
 	if err != nil {
 		return fmt.Errorf("error creating apcupsd client: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	cs := []prometheus.Collector{
 		NewUPSCollector(c),
