@@ -2,9 +2,6 @@
 version: 2
 project_name: apcupsd_exporter
 
-env:
-  - GO111MODULE=on
-
 before:
   hooks:
     - go mod download
@@ -16,11 +13,9 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
-      - 386
     env:
       - CGO_ENABLED=0
     ldflags:
@@ -38,14 +33,15 @@ release:
     name: apcupsd_exporter
 
 dockers_v2:
-  - image_templates:
-      - "ghcr.io/twexler/apcupsd_exporter:{{ .Tag }}"
-      - "ghcr.io/twexler/apcupsd_exporter:latest"
+  - images:
+      - "ghcr.io/twexler/apcupsd_exporter"
     dockerfile: Dockerfile
-    use: buildx
+    platforms:
+      - linux/amd64
+      - linux/arm64
     tags:
-      - latest
       - "{{ .Tag }}"
+      - latest
     labels:
       org.opencontainers.image.created: "{{.Date}}"
       org.opencontainers.image.revision: "{{.FullCommit}}"
