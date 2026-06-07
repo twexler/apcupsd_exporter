@@ -1,5 +1,4 @@
 ---
-# yaml-language-server: $schema=
 version: 2
 project_name: apcupsd_exporter
 

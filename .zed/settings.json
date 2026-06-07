@@ -1,0 +1,14 @@
+{
+  "lsp": {
+    "yaml-language-server": {
+      "settings": {
+        "yaml": {
+          "schemas": {
+            "https://json.schemastore.org/golangci-lint.json": [".golangci.yml"],
+            "https://goreleaser.com/static/schema.json": [".goreleaser.yml"]
+          }
+        }
+      }
+    }
+  }
+}
