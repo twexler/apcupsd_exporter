@@ -1,0 +1,36 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters-settings:
+  gofumpt:
+    extra: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - gosimple
+    - unused
+    - gofmt
+    - gofumpt
+    - revive
+    - ineffassign
+    - deadcode
+    - typecheck
+    - structcheck
+    - varcheck
+  disable:
+    - maligned
+
+issues:
+  exclude-use-default: false
+  exclude:
+    - "error return value not checked.*(Close|Write|Fprintf)" # false positives often
+  max-same-issues: 3
+  max-issues-per-linter: 0
+  max-issues: 0
+
+output:
+  format: colored-line-number

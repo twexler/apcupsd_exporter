@@ -1,0 +1,296 @@
+From 91200eb2d0053fb1dcfdd85b83692e3b318baa4e Mon Sep 17 00:00:00 2001
+From: Ted Wexler <ted@wexler.email>
+Date: Sat, 6 Jun 2026 20:43:56 -0400
+Subject: [PATCH] =?UTF-8?q?ci:=20modernize=20GitHub=20Actions=20workflows?=
+ =?UTF-8?q?=20=E2=80=94=20add=20CI=20matrix,=20caching,=20linting=20and=20?=
+ =?UTF-8?q?release=20via=20goreleaser?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .github/workflows/ci.yml              | 79 +++++++++++++++++++++++++++
+ .github/workflows/goreleaser.yml      | 29 ----------
+ .github/workflows/linux-test.yml      | 31 -----------
+ .github/workflows/publish_build.yml   | 25 ---------
+ .github/workflows/release.yml         | 30 ++++++++++
+ .github/workflows/static-analysis.yml | 38 -------------
+ 6 files changed, 109 insertions(+), 123 deletions(-)
+ create mode 100644 .github/workflows/ci.yml
+ delete mode 100644 .github/workflows/goreleaser.yml
+ delete mode 100644 .github/workflows/linux-test.yml
+ delete mode 100644 .github/workflows/publish_build.yml
+ create mode 100644 .github/workflows/release.yml
+ delete mode 100644 .github/workflows/static-analysis.yml
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..33824e3
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,79 @@
++name: CI
++
++on:
++  push:
++    branches:
++      - '*'
++  pull_request:
++    branches:
++      - '*'
++
++jobs:
++  test:
++    name: Test (Go ${{ matrix.go-version }})
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++      matrix:
++        go-version: [1.23, 1.24, 1.25, 1.26]
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up Go
++        uses: actions/setup-go@v4
++        with:
++          go-version: ${{ matrix.go-version }}
++
++      - name: Cache Go modules
++        uses: actions/cache@v4
++        with:
++          path: |
++            ~/.cache/go-build
++            ~/go/pkg/mod
++          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
++          restore-keys: |
++            ${{ runner.os }}-go-${{ matrix.go-version }}-
++
++      - name: Get dependencies
++        run: go mod download
++
++      - name: Run tests
++        run: go test -race ./...
++
++      - name: Run go vet
++        run: go vet ./...
++
++  lint:
++    name: Lint
++    runs-on: ubuntu-latest
++    needs: []
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++
++      - name: Set up Go
++        uses: actions/setup-go@v4
++        with:
++          go-version: 1.26
++
++      - name: Cache Go modules
++        uses: actions/cache@v4
++        with:
++          path: |
++            ~/.cache/go-build
++            ~/go/pkg/mod
++          key: ${{ runner.os }}-go-1.26-${{ hashFiles('**/go.sum') }}
++          restore-keys: |
++            ${{ runner.os }}-go-1.26-
++
++      - name: Install golangci-lint
++        uses: golangci/golangci-lint-action@v4
++        with:
++          version: v1.59.0
++
++      - name: Run golangci-lint
++        uses: golangci/golangci-lint-action@v4
++        with:
++          args: run --timeout=5m
+diff --git a/.github/workflows/goreleaser.yml b/.github/workflows/goreleaser.yml
+deleted file mode 100644
+index cdd8ea4..0000000
+--- a/.github/workflows/goreleaser.yml
++++ /dev/null
+@@ -1,29 +0,0 @@
+-name: goreleaser
+-
+-on:
+-  push:
+-    tags: 
+-      - '*'
+-
+-jobs:
+-  goreleaser:
+-    runs-on: ubuntu-latest
+-    steps:
+-      -
+-        name: Checkout
+-        uses: actions/checkout@v2
+-        with:
+-          fetch-depth: 0
+-      -
+-        name: Set up Go
+-        uses: actions/setup-go@v2
+-        with:
+-          go-version: 1.15
+-      -
+-        name: Run GoReleaser
+-        uses: goreleaser/goreleaser-action@v2
+-        with:
+-          version: latest
+-          args: release --rm-dist
+-        env:
+-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+diff --git a/.github/workflows/linux-test.yml b/.github/workflows/linux-test.yml
+deleted file mode 100644
+index 3a13716..0000000
+--- a/.github/workflows/linux-test.yml
++++ /dev/null
+@@ -1,31 +0,0 @@
+-name: Linux Test
+-
+-on:
+-  push:
+-    branches:
+-      - '*'
+-  pull_request:
+-    branches:
+-      - '*'
+-
+-jobs:
+-  build:
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        go-version: [1.17]
+-        os: [ubuntu-latest]
+-    runs-on: ${{ matrix.os }}
+-
+-    steps:
+-    - name: Set up Go
+-      uses: actions/setup-go@v2
+-      with:
+-        go-version: ${{ matrix.go-version }}
+-      id: go
+-
+-    - name: Check out code into the Go module directory
+-      uses: actions/checkout@v2
+-
+-    - name: Run tests
+-      run: go test -race ./...
+diff --git a/.github/workflows/publish_build.yml b/.github/workflows/publish_build.yml
+deleted file mode 100644
+index 83de84a..0000000
+--- a/.github/workflows/publish_build.yml
++++ /dev/null
+@@ -1,25 +0,0 @@
+-name: Publish Build
+-
+-on:
+-  push:
+-    branches: 
+-      - master
+-jobs:
+-
+-  build:
+-    runs-on: ubuntu-latest
+-    steps:
+-    - uses: actions/checkout@v2
+-
+-    - name: Set up Go
+-      uses: actions/setup-go@v2
+-      with:
+-        go-version: 1.15
+-
+-    - name: Build
+-      run: go build -o apcupsd-exporter ./cmd/apcupsd_exporter
+-      
+-    - uses: actions/upload-artifact@v2
+-      with:
+-        name: apcupsd-exporter-linux-amd64
+-        path: apcupsd-exporter
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+new file mode 100644
+index 0000000..34258b1
+--- /dev/null
++++ b/.github/workflows/release.yml
+@@ -0,0 +1,30 @@
++name: Release
++
++on:
++  push:
++    tags:
++      - '*'
++
++jobs:
++  release:
++    name: goreleaser
++    runs-on: ubuntu-latest
++
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Set up Go
++        uses: actions/setup-go@v4
++        with:
++          go-version: 1.26
++
++      - name: Run GoReleaser
++        uses: goreleaser/goreleaser-action@v4
++        with:
++          version: latest
++          args: release --rm-dist
++        env:
++          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+diff --git a/.github/workflows/static-analysis.yml b/.github/workflows/static-analysis.yml
+deleted file mode 100644
+index 4c1cadb..0000000
+--- a/.github/workflows/static-analysis.yml
++++ /dev/null
+@@ -1,38 +0,0 @@
+-name: Static Analysis
+-
+-on:
+-  push:
+-    branches:
+-      - '*'
+-  pull_request:
+-    branches:
+-      - '*'
+-
+-jobs:
+-  build:
+-    strategy:
+-      matrix:
+-        go-version: [1.17]
+-    runs-on: ubuntu-latest
+-
+-    steps:
+-    - name: Set up Go
+-      uses: actions/setup-go@v2
+-      with:
+-        go-version: ${{ matrix.go-version }}
+-      id: go
+-
+-    - name: Check out code into the Go module directory
+-      uses: actions/checkout@v2
+-
+-    - name: Install staticcheck
+-      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+-
+-    - name: Print staticcheck version
+-      run: staticcheck -version
+-
+-    - name: Run staticcheck
+-      run: staticcheck ./...
+-
+-    - name: Run go vet
+-      run: go vet ./...
+-- 
+2.53.0
+
